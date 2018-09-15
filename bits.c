@@ -171,7 +171,8 @@ NOTES:
  *   Rating: 1
  */
 int bitAnd(int x, int y) {
-  return 2;
+  /* using de Morgan's Law: x&y == ~(~(x&y)) == ~((~x)|(~y)) */
+  return ~((~x)|(~y));
 }
 /* 
  * getByte - Extract byte n from word x
@@ -182,7 +183,14 @@ int bitAnd(int x, int y) {
  *   Rating: 2
  */
 int getByte(int x, int n) {
-  return 2;
+  /* little endian. x contains 4 bytes.
+   * 8 bit shift '<<' operation == 1 byte shift operation.
+   * (*8) == (<<3)
+   * 1 byte masking(&0xFF) the result, return. */
+  int bitshiftNUM = n << 3;
+  int mask = 0xFF;
+
+  return ((x&(mask<<bitshiftNUM))>>bitshiftNUM)&mask;
 }
 /* 
  * logicalShift - shift x to the right by n, using a logical shift
@@ -193,7 +201,11 @@ int getByte(int x, int n) {
  *   Rating: 3 
  */
 int logicalShift(int x, int n) {
-  return 2;
+  /* this function consists 'MSB copying problem'
+   * solution: mask the result */
+  int mask = ~((0x01 << 31) >> n << 1);
+
+  return (x >> n) & mask;
 }
 /*
  * bitCount - returns count of number of 1's in word
@@ -203,7 +215,25 @@ int logicalShift(int x, int n) {
  *   Rating: 4
  */
 int bitCount(int x) {
-  return 2;
+  /* solution: merge the bitCount.
+   * initial - 0 or 1
+   * next - 00 or 01 or 10
+   * next - 0000 or 0001 or 0010 or 0011 or 0100 */
+  int mask0101 = 0x55 + (0x55<<8);
+  int mask0011 = 0x33 + (0x33<<8);
+  int mask1111 = 0x0F + (0x0F<<8);
+  int mask00FF = 0xFF + (0xFF<<16);
+  int maskFFFF = 0xFF + (0xFF<<8);
+  mask0101 = mask0101 + (mask0101<<16);
+  mask0011 = mask0011 + (mask0011<<16);
+  mask1111 = mask1111 + (mask1111<<16);
+
+  x = (x&mask0101) + ((x>>1)&mask0101);
+  x = (x&mask0011) + ((x>>2)&mask0011);
+  x = (x&mask1111) + ((x>>4)&mask1111);
+  x = (x&mask00FF) + ((x>>8)&mask00FF);
+  x = (x&maskFFFF) + ((x>>16)&maskFFFF);
+  return x;
 }
 /* 
  * bang - Compute !x without using !
@@ -213,7 +243,14 @@ int bitCount(int x) {
  *   Rating: 4 
  */
 int bang(int x) {
-  return 2;
+  /* merge bits with OR(|) without masking.
+   * return the difference to the 0x01 of LSB. */
+  x = (x>>1) | x;
+  x = (x>>2) | x;
+  x = (x>>4) | x;
+  x = (x>>8) | x;
+  x = (x>>16) | x;
+  return (x^0x01)&0x01;
 }
 /* 
  * tmin - return minimum two's complement integer 
@@ -222,7 +259,10 @@ int bang(int x) {
  *   Rating: 1
  */
 int tmin(void) {
-  return 2;
+  /* the minimum two's complement integer is 1000000...0
+   * for 32 bit int type, it is 0x80000000. 
+   * which has 1=MSB, else 0 (31). */
+  return 0x01<<31;
 }
 /* 
  * fitsBits - return 1 if x can be represented as an 
@@ -234,7 +274,10 @@ int tmin(void) {
  *   Rating: 2
  */
 int fitsBits(int x, int n) {
-  return 2;
+  /* truncating front, test if same (== XNOR) */
+  int front_n = 33 + (~n);
+
+  return !(x ^ ((x << front_n) >> front_n));
 }
 /* 
  * divpwr2 - Compute x/(2^n), for 0 <= n <= 30
@@ -245,7 +288,16 @@ int fitsBits(int x, int n) {
  *   Rating: 2
  */
 int divpwr2(int x, int n) {
-    return 2;
+  /* returns x>>n for positive.
+   * returns (x+n1s) >> n for negative(round toward zero).
+   * making n1s: 1<<n (=pwr(2,n)) + ~0 (-1)
+   * negative condition: mask 32 MSB's */
+  int MSBmask = x>>31;
+  int n1s = (0x01<<n) + (~0);
+
+  n1s = n1s & MSBmask;
+
+  return (x+n1s) >> n;
 }
 /* 
  * negate - return -x 
@@ -255,7 +307,9 @@ int divpwr2(int x, int n) {
  *   Rating: 2
  */
 int negate(int x) {
-  return 2;
+  /* 2's complement: x + negate(x) = 0
+   * x + ~x + 1 == 0. */
+  return (~x) + 1;
 }
 /* 
  * isPositive - return 1 if x > 0, return 0 otherwise 
@@ -265,7 +319,9 @@ int negate(int x) {
  *   Rating: 3
  */
 int isPositive(int x) {
-  return 2;
+  /* check MSB of x, use !
+   * if x==0, return 0. -> !!x is 0 if and only if x=0 */
+  return (!(x>>31))&(!!x);
 }
 /* 
  * isLessOrEqual - if x <= y  then return 1, else return 0 
@@ -275,7 +331,24 @@ int isPositive(int x) {
  *   Rating: 3
  */
 int isLessOrEqual(int x, int y) {
-  return 2;
+  /* issue: overflow
+   * solution: check MSBs(signs) of x, y, y-x.
+   * x-y's MSB is 0 when x >= y. (when overflow does not occur)
+   * y-x's MSB is 0 when y >= x. (when ~)
+   * overflow does not occur condition: both MSB are the same.
+   * overflow occurs if only x & y MSB differs.
+   * different MSB indicates which is the 'less' one.
+   *   xMSB=1, yMSB=0 -> return 1 */
+  int differ = y + (~x) + 1;
+  int guessFromMSBofYminusX = !(differ>>31);
+
+  int xMSB = x>>31;
+  int yMSB = y>>31;
+  int xyMSBdiffer = xMSB ^ yMSB;
+
+  int noOverflowCmp = (!xyMSBdiffer) & guessFromMSBofYminusX;
+  int overflowCmp = xyMSBdiffer & xMSB & 0x01;
+  return noOverflowCmp + overflowCmp;
 }
 /*
  * ilog2 - return floor(log base 2 of x), where x > 0
@@ -299,7 +372,15 @@ int ilog2(int x) {
  *   Rating: 2
  */
 unsigned float_neg(unsigned uf) {
- return 2;
+  /* return MSB-inversed uf if it is not NaN.
+   * return uf if it is NaN.
+   * NaN == all 1's in exponent && not zero of frac. */
+  int frac_mask = (1<<23) - 1;
+  int exp_mask = 0xFF << 23;
+  if (((exp_mask & uf) == exp_mask) && (frac_mask & uf))
+    return uf;
+
+  return uf^(1<<31);
 }
 /* 
  * float_i2f - Return bit-level equivalent of expression (float) x
