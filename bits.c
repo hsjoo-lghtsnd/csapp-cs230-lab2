@@ -358,7 +358,48 @@ int isLessOrEqual(int x, int y) {
  *   Rating: 4
  */
 int ilog2(int x) {
-  return 2;
+  /* issue: find the largest significant '1' by using bit ops.
+   * finding '1' check function: '!' -> returns 0 if at least one 1.
+   * divide and conquer. check 16bits, then check 8bits, ...
+   * x > 0 -> MSB == 0 */
+  int result = 0;
+  int left = x>>16;
+  int right = x & ((0xFF<<8) + 0xFF);
+  int check_mask = ~(((!left)<<31)>>31);
+
+  x = (check_mask & left) + ((~check_mask) & right);
+  result = check_mask & 16; /* result was 0. */
+
+  /* '8' part */
+  left = x>>8;
+  right = x & 0xFF;
+  check_mask = ~(((!left)<<31)>>31);
+
+  x = (check_mask & left) + ((~check_mask) & right);
+  result = result + (check_mask & 8);
+
+  /* '4' part */
+  left = x>>4;
+  right = x & 0x0F;
+  check_mask = ~(((!left)<<31)>>31);
+
+  x = (check_mask & left) + ((~check_mask) & right);
+  result = result + (check_mask & 4);
+
+  /* '2' part */
+  left = x>>2;
+  right = x & 0x03;
+  check_mask = ~(((!left)<<31)>>31);
+
+  x = (check_mask & left) + ((~check_mask) & right);
+  result = result + (check_mask & 2);
+
+  /* '1' part : we only need 'left'
+   * no check, because left & right is 1 bit. */
+  left = x>>1;
+  result = result + left;
+
+  return result;
 }
 /* 
  * float_neg - Return bit-level equivalent of expression -f for
@@ -392,7 +433,42 @@ unsigned float_neg(unsigned uf) {
  *   Rating: 4
  */
 unsigned float_i2f(int x) {
-  return 2;
+  /* issue #1: conversion into sign&mag expression
+   * issue #2: calculation of 'exp' part.
+   * issue #3: truncation rounding from mag >> 8 */
+  int position = 0;
+  int MSB1 = 1<<31;
+  int roundbit;
+  int stickybit;
+  int rounding;
+
+  /* sign&mag expression
+   * problem: tmin(0x80000000). */
+  int MSBmask = x>>31;
+  int mag = (MSBmask & (-x)) + ((~MSBmask) & x);
+
+  if (x==MSB1) /* tmin: exp == 127 + 31 == 158, MSB = 1 */
+    return MSB1 + (158<<23);
+
+  /* truncation, calc exp by the position of leading 1 
+   * problem: zero(0x00000000 -> no leading 1) */
+  if (x==0)
+    return 0;
+
+  MSBmask = MSB1;
+
+  while (!(mag & MSBmask)) {
+    MSBmask = MSBmask>>1;
+    position++;
+  }
+
+  mag = mag<<position;
+  roundbit = mag&0x80;
+  stickybit = mag&0x7f;
+  mag = mag>>8;
+  rounding = (((mag&0x01)&&roundbit) || (roundbit&&stickybit));
+
+  return (x&MSB1) + ((158-position)<<23) + (mag&0x7fffff) + rounding;
 }
 /* 
  * float_twice - Return bit-level equivalent of expression 2*f for
@@ -406,5 +482,20 @@ unsigned float_i2f(int x) {
  *   Rating: 4
  */
 unsigned float_twice(unsigned uf) {
-  return 2;
+  /* return exp = exp+1
+   * if NaN, return uf. (+, if inf, return uf.)
+   * if +-0, return uf. 
+   * if exp == 0, return frac<<1 */
+  int exp_mask = 0xFF << 23;
+  int MSB = uf & (0x01<<31);
+  if ((uf & exp_mask) == exp_mask)
+    return uf;
+
+  if ((uf ^ MSB) == 0)
+    return uf;
+
+  if (!(uf & exp_mask))
+    return MSB + (uf<<1);
+
+  return uf + (1<<23);
 }
